@@ -44,7 +44,8 @@ This uses python due to the available packages for interfacing with the sensors.
 
 - gotchas connecting to raspberry pi
     - Raspberry Pi Imager may set username to the installing machine username instead of default "pi" (happens when enabling ssh?)
-    - Ghostty terminal on macOS requires a security setting to be disabled or it just won't ssh/ping the raspberry pi inexplicably (System Settings > Privacy & Security > Local Network > Ghostty (or other terminal) > Enable)
+    - terminals on macOS requires a security setting to be disabled or it just won't ssh/ping the raspberry pi inexplicably (System Settings > Privacy & Security > Local Network > Ghostty (or other terminal) > Enable)
+    - Ghostty terminal on macOS sets the $TERM variable on the raspberry pi to ```xterm-ghostty``` when connecting via ssh, which causes things like ```top``` not to work due to graphics dependencies; can fix by manually setting $TERM when connecting: ```TERM=xterm-256color ssh pi@<ip address>```
 
 - configure graceful shutdown button (optional)
     - connect GND to the raspberry pi GPIO pin 24 (or others) through a momentary switch/button
@@ -98,7 +99,7 @@ This uses python due to the available packages for interfacing with the sensors.
         GRANT INSERT ON airmetrics.* TO 'grafana'@'localhost';
         FLUSH PRIVILEGES;
         ```
-- install & configure Grafana (Debian install instructions from Grafana's site):
+- install & configure Grafana:
     - install prerequisites: `sudo apt-get install -y apt-transport-https software-properties-common wget`
     - add GPG key to verify Grafana packages:
         - `sudo mkdir -p /etc/apt/keyrings/`
@@ -109,15 +110,21 @@ This uses python due to the available packages for interfacing with the sensors.
     - set binding:
         - edit `/etc/grafana/grafana.ini` with elevated permissions (i.e. sudo)
         - under `[server]` set `http_addr = 0.0.0.0` (default is blank which is localhost only (internal to raspberry pi))
+    - modify service to be resilient to failures:
+        - ```sudo systemctl edit grafana-server```
+          - add lines in editable section near top and save/exit:
+            - ```[Service]```
+            - ```Restart=always```
+            - ```RestartSec=10```
     - start and enable Grafana:
         - `sudo systemctl daemon-reload`
         - `sudo systemctl start grafana-server`
         - `sudo systemctl enable grafana-server`
         - check status: `sudo systemctl status grafana-server`
     - access Grafana:
-        - http://<pi-ip-address>:3000
+        - http://*(pi's ip address)*:3000
         - default login: username = admin, password = admin
-        - * I couldn't consistently access it in chrome and firefox, but it works in safari
+        - *I couldn't consistently access it in chrome or firefox, but it works in safari*
     - add data source in Grafana:
         - Connections (on left sidebar) > Data sources > Add data source > MySQL
         - configure the following for the data source:
@@ -128,15 +135,17 @@ This uses python due to the available packages for interfacing with the sensors.
             - Min time interval: match interval that data is saved by code
     - create a dashboard for the datasource in Grafana:
         - add a visualization for each metric with a query similar to the following:
-            - SELECT timestamp AS time, temperature_c
-                FROM readings
-                ORDER BY time
+            - SELECT $__timeGroupAlias(timestamp, $__interval), AVG(temperature_c) AS temperature_c
+              FROM readings
+              WHERE $__timeFilter(timestamp)
+              GROUP BY 1
+              ORDER BY 1
             - also do visualization/query for temperature_c, humidity_pct, pressure_hpa, gas_ohms
 
 
 - to manually run program (optional):
-    - need to ensure it's in the virtual environment with the dependencies before running the code: `source sensor_env/bin/activate`
-    - `python3 main.py` (whatever the main entry of the program is)
+    - need to ensure it's in the virtual environment with the dependencies: `source sensor_env/bin/activate`
+    - `python3 air_logger.py`
 
 - configure program to start whenever system starts:
     - create a file (systemd service) `/etc/systemd/system/airlogger.service` containing the following:
@@ -157,3 +166,18 @@ This uses python due to the available packages for interfacing with the sensors.
         WantedBy=multi-user.target
         ```
     - `sudo systemctl enable airlogger.service && sudo systemctl start airlogger.service`
+
+
+- fix a potential shorter-term WiFi disconnection issue (occurs after several days):
+  - (error `FT: Invalid key management type (2)` appears in logs for `journalctl -u wpa_supplicant --lines=100`)
+    - (issue is supposedly incompatibility of WPA type of pi with newer types (and Fast Transition) on wifi router)
+  - edit `/etc/NetworkManager/system-connections/preconfigured.nmconnection`
+  - add this line at end of `[wifi]` section: `ieee80211r=no`
+  - ensure `[wifi-security]` section contains the line `key-mgmt=wpa-psk`
+  - save and exit
+  - `sudo nmcli connection reload`
+  - `sudo nmcli device wifi rescan; sudo nmcli connection up ((Your Connection Name))` -> where Your Connection Name is found with `nmcli connection show`
+
+- fix a longer-term WiFi disconection issue (occuring after several weeks):
+  - cause seems to be the Raspberry Pi's wifi driver crashing and it doesn't notice and restart it
+  - add a hourly checker with `sudo crontab -e` then insert `@hourly /sbin/iwconfig wlan0 | grep -q "ESSID:off/any" && sudo nmcli dev disconnect wlan0 && sudo nmcli dev connect wlan0`
