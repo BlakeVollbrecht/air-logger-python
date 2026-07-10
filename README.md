@@ -3,18 +3,31 @@
 
 ## Description
 
-Logs air metrics such as temperature, humidity, and CO2 levels. Reads data from sensors connected to a Raspberry Pi and stores as time series data in a local MySQL (MariaDB) database. Also hosts Grafana to make charts of this data accessible on local network.
+Logs air metrics such as temperature, humidity, and CO2 levels. Reads data from sensors connected to a Raspberry Pi and stores as time series data in a local MySQL (MariaDB) database. Grafana is also hosted on the Raspberry Pi to make graphs of this data accessible on a local network.
 
-This uses python due to the available packages for interfacing with the sensors. It involves setup on a raspberry pi over ssh rather than applying a premade image.
+This project uses Python due to its package ecosystem which:
+1. makes interfacing with the sensors very succinct in code
+2. makes it very easy to add support for new sensor types
+
+The project involves some setup on a Raspberry Pi over SSH rather than applying a pre-made image.
 
 ### Intended Hardware
 
-- Raspberry Pi Zero W (wifi) with Raspberry Pi OS Lite (headless)
-- Adafruit BME688 temp/humidity/pressure/voc module
+- Raspberry Pi Zero W (Wi-Fi) with Raspberry Pi OS Lite (headless)
+- Adafruit BME688 temp/humidity/pressure/VOC module
 - Senseair Sunrise 006-0-0008 CO2 sensor
 
 
-## How to use
+## Motivation
+
+Monitoring "air metrics" is a fun way to learn about your environment, and it has two main benefits:
+1. Indoor air quality is important to health. For example, elevated CO2 levels cause reduced cognitive ability and you should be ensuring this isn't an issue for yourself and your family.
+2. Having visibility into things like insulation and HVAC performance lets you identify improvements that can make your home more comfortable. This can be anything from configuring the thermostat or air handler, to installing components like a humidifier or ERV.
+
+Other air quality monitors exist, but this is a shortcut template for making a self-hosted one with any type of sensors you want.  It's nice to know when you're buying the sensors that there's a path to making everything work nicely with only a few hours of tinkering.
+
+
+## Making the air logger
 
 ### Connect sensors
 
@@ -44,8 +57,10 @@ This uses python due to the available packages for interfacing with the sensors.
 
 - gotchas connecting to raspberry pi
     - Raspberry Pi Imager may set username to the installing machine username instead of default "pi" (happens when enabling ssh?)
-    - terminals on macOS requires a security setting to be disabled or it just won't ssh/ping the raspberry pi inexplicably (System Settings > Privacy & Security > Local Network > Ghostty (or other terminal) > Enable)
+    - terminals on macOS may require a security setting to be disabled or it just won't ssh/ping the raspberry pi inexplicably (System Settings > Privacy & Security > Local Network > Ghostty (or other terminal) > Enable)
     - Ghostty terminal on macOS sets the $TERM variable on the raspberry pi to ```xterm-ghostty``` when connecting via ssh, which causes things like ```top``` not to work due to graphics dependencies; can fix by manually setting $TERM when connecting: ```TERM=xterm-256color ssh pi@<ip address>```
+
+- SSH into the Raspberry Pi
 
 - configure graceful shutdown button (optional)
     - connect GND to the raspberry pi GPIO pin 24 (or others) through a momentary switch/button
@@ -124,7 +139,7 @@ This uses python due to the available packages for interfacing with the sensors.
     - access Grafana:
         - http://*(pi's ip address)*:3000
         - default login: username = admin, password = admin
-        - *I couldn't consistently access it in chrome or firefox, but it works in safari*
+        - *I couldn't consistently access it in Chrome or Firefox on macOS, but it works in Safari*
     - add data source in Grafana:
         - Connections (on left sidebar) > Data sources > Add data source > MySQL
         - configure the following for the data source:
@@ -168,9 +183,9 @@ This uses python due to the available packages for interfacing with the sensors.
     - `sudo systemctl enable airlogger.service && sudo systemctl start airlogger.service`
 
 
-- fix a potential shorter-term WiFi disconnection issue (occurs after several days):
+- fix a potential shorter-term Wi-Fi disconnection issue (occurs after several days):
   - (error `FT: Invalid key management type (2)` appears in logs for `journalctl -u wpa_supplicant --lines=100`)
-    - (issue is supposedly incompatibility of WPA type of pi with newer types (and Fast Transition) on wifi router)
+    - (issue is supposedly incompatibility of WPA type of pi with newer types (and Fast Transition) on Wi-Fi router)
   - edit `/etc/NetworkManager/system-connections/preconfigured.nmconnection`
   - add this line at end of `[wifi]` section: `ieee80211r=no`
   - ensure `[wifi-security]` section contains the line `key-mgmt=wpa-psk`
@@ -178,6 +193,6 @@ This uses python due to the available packages for interfacing with the sensors.
   - `sudo nmcli connection reload`
   - `sudo nmcli device wifi rescan; sudo nmcli connection up ((Your Connection Name))` -> where Your Connection Name is found with `nmcli connection show`
 
-- fix a longer-term WiFi disconection issue (occuring after several weeks):
-  - cause seems to be the Raspberry Pi's wifi driver crashing and it doesn't notice and restart it
+- fix a longer-term Wi-Fi disconection issue (occuring after several weeks):
+  - cause seems to be the Raspberry Pi's Wi-Fi driver crashing and it doesn't notice and restart it
   - add a hourly checker with `sudo crontab -e` then insert `@hourly /sbin/iwconfig wlan0 | grep -q "ESSID:off/any" && sudo nmcli dev disconnect wlan0 && sudo nmcli dev connect wlan0`
